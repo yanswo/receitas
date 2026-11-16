@@ -24,11 +24,11 @@ def inserir(request):
 
 @login_required
 def procurar(request):
-    query= request.GET.get('q')
-    receitas= []
+    query = request.GET.get('q', '').strip()
+    receitas = Receita.objects.all().order_by('-id')
 
     if query:
-        receitas= Receita.objects.filter(name__icontains=query)
+        receitas = receitas.filter(name__icontains=query)
     context = {
         'receitas': receitas,
         'query': query,

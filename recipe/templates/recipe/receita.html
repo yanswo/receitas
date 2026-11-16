@@ -1,25 +1,93 @@
 {% extends "base.html" %}
 {% block title %}{{ receita.name }} · Mesa & Memória{% endblock %}
 {% block content %}
-<div class="panel">
-    <p class="eyebrow">Receita da comunidade</p>
-    <h1>{{ receita.name }}</h1>
-    <p>⏱ Tempo de preparo: {{ receita.preparationtime }} minutos</p>
-    <h3>Ingredientes</h3>
-    <p>{{ receita.ingredients }}</p>
-    <h3>Modo de preparo</h3>
-    <p>{{ receita.preparationmethod }}</p>
-    {% if receita.fotos %}<div class="receita-card-media" style="border-radius:15px;margin:25px 0"><img
-            src="{{ receita.fotos.url }}" alt="{{ receita.name }}"></div>{% else %}<p><em>Sem foto disponível</em></p>{%
-    endif %}
-    <hr>
-    <div class="vote-section">
-        <form action="{% url 'like_receita' receita.id %}" method="post" style="display:inline-block;margin-right:8px">
-            {% csrf_token %}<input type="hidden" name="action" value="like"><button class="button button-primary"
-                type="submit">Gostei ({{ receita.like }})</button></form>
-        <form action="{% url 'like_receita' receita.id %}" method="post" style="display:inline-block">{% csrf_token
-            %}<input type="hidden" name="action" value="deslike"><button class="button button-secondary"
-                type="submit">Não gostei ({{ receita.deslike }})</button></form>
+
+<a class="back-link" href="{% url 'procurar' %}">← Voltar para explorar</a>
+
+<article class="recipe-detail">
+
+    {# ── Hero / imagem da receita ── #}
+    <div class="recipe-detail-hero">
+        {% if receita.fotos %}
+            <img src="{{ receita.fotos.url }}" alt="{{ receita.name }}">
+        {% else %}
+            <div class="recipe-placeholder" aria-hidden="true">🍽️</div>
+        {% endif %}
+        <span class="recipe-ribbon">Receita da comunidade</span>
     </div>
-</div>
+
+    {# ── Conteúdo ── #}
+    <div class="recipe-detail-content">
+
+        {# Cabeçalho #}
+        <header class="recipe-detail-header">
+            <p class="eyebrow">Para guardar no caderno</p>
+            <h1>{{ receita.name }}</h1>
+            <div class="recipe-detail-meta">
+                <span class="meta-chip">
+                    <span class="icon">⏱</span>
+                    {% if receita.preparationtime %}
+                        {{ receita.preparationtime }} minutos de preparo
+                    {% else %}
+                        Tempo não informado
+                    {% endif %}
+                </span>
+                <span class="meta-chip">
+                    <span class="icon">❤️</span>
+                    {{ receita.like }} curtida{{ receita.like|pluralize }}
+                </span>
+            </div>
+        </header>
+
+        {# Divisor decorativo #}
+        <div class="recipe-divider"><span>✦</span></div>
+
+        {# Colunas ingredientes + preparo #}
+        <div class="recipe-columns">
+
+            <section class="ingredients-section">
+                <h2>
+                    <span class="section-icon">🧅</span>
+                    Ingredientes
+                </h2>
+                <div class="recipe-copy">{{ receita.ingredients|linebreaksbr }}</div>
+            </section>
+
+            <section class="method-section">
+                <h2>
+                    <span class="section-icon">🥄</span>
+                    Modo de preparo
+                </h2>
+                <div class="recipe-copy">{{ receita.preparationmethod|linebreaksbr }}</div>
+            </section>
+
+        </div>
+
+        {# Área de votação #}
+        <div class="recipe-actions">
+            <div class="recipe-actions-label">
+                <p>Essa receita fez parte do seu menu?</p>
+                <small>Sua opinião ajuda a destacar as melhores receitas</small>
+            </div>
+            <div class="vote-buttons">
+                <form action="{% url 'like_receita' receita.id %}" method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="like">
+                    <button class="button btn-like" type="submit">
+                        ♥ Gostei <span>{{ receita.like }}</span>
+                    </button>
+                </form>
+                <form action="{% url 'like_receita' receita.id %}" method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="deslike">
+                    <button class="button btn-dislike" type="submit">
+                        Não fez meu estilo <span>{{ receita.deslike }}</span>
+                    </button>
+                </form>
+            </div>
+        </div>
+
+    </div>
+</article>
+
 {% endblock %}

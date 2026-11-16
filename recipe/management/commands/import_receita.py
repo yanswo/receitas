@@ -1,60 +1,93 @@
-# 1. Ferramentas do Django e do Python
-from recipe.models import Receita
+from io import BytesIO
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
+import json
+
+from django.core.files.base import ContentFile
 from django.core.management.base import BaseCommand
-import requests
+
+from recipe.models import Receita
 
 
 class Command(BaseCommand):
-    help = 'Testando conexao API' #help é pra quando alguem quer saber o que a API faz
+    help = 'Importa receitas da TheMealDB'
 
-    def handle(self, *args, **options): #É o método principal (a função) que o Django executa automaticamente assim que você roda o comando no terminal.
-        url = "https://www.themealdb.com/api/json/v1/1/search.php?s=" #URL da API
-        
-        # Exibe mensagem amarela no terminal avisando o início da operação por causa do WARNING
-        self.stdout.write(self.style.WARNING("Iniciando conexao com a API..."))
-        
+    @staticmethod
+    def _get_json(url, params=None):
+        if params:
+            url = f'{url}?{urlencode(params)}'
+        request = Request(url, headers={'User-Agent': 'receitas-app/1.0'})
+        with urlopen(request, timeout=20) as response:
+            return json.load(response)
 
-        resposta = requests.get(url)
-        
-        # Checagem de segurança HTTP: 200 significa "Sucesso"
-        if resposta.status_code == 200:
+    @staticmethod
+    def _get_bytes(url):
+        request = Request(url, headers={'User-Agent': 'receitas-app/1.0'})
+        with urlopen(request, timeout=5) as response:
+            return response.read()
 
-            dados = resposta.json()
+    def handle(self, *args, **options):
+        self.stdout.write(self.style.WARNING('Iniciando conexao com a API...'))
+        termos = ('chicken', 'beef', 'pasta', 'rice', 'fish', 'cake')
+        encontrados = {}
 
-            # Pega a lista de receitas dentro da chave 'meals' do JSON. Se não existir, retorna uma lista vazia []
-            receitas = dados.get('meals', [])
-            
-            # Avisa no terminal que a requisição funcionou
-            self.stdout.write(self.style.SUCCESS(f"Conexao estabelecida com sucesso! Código HTTP: {resposta.status_code}"))
-            
-            #  verifica se as receitas vieram em uma lista (verificamos 'receitas', pois 'dados' é o dicionário completo)
-            if isinstance(receitas, list):
-                total = len(receitas)
-                self.stdout.write(f"Total de receitas encontradas na API: {total}") 
-                
-                # Se houver receitas na lista, mostra o primeiro item como exemplo para inspeção
-                if total > 0:
-                    self.stdout.write("\n--- Exemplo da primeira receita que veio do JSON ---")
-                    self.stdout.write(str(receitas[0]))
-                    self.stdout.write("---------------------------------------------------\n")
+        for termo in termos:
+            try:
+                dados = self._get_json(
+                    'https://www.themealdb.com/api/json/v1/1/search.php',
+                    {'s': termo},
+                )
+                for item in (dados.get('meals') or []):
+                    chave = item.get('idMeal') or item.get('strMeal')
+                    encontrados[chave] = item
+            except (HTTPError, URLError, TimeoutError, ValueError) as exc:
+                self.stdout.write(self.style.WARNING(
+                    f'Falha ao buscar {termo}: {exc}'
+                ))
 
-                    # Novo bloco: Percorre a lista e salva cada receita no banco de dados (model Receita)
-                    self.stdout.write(self.style.WARNING("Salvando receitas no banco de dados..."))
-                    for item in receitas:
-                        Receita.objects.create(
-                            name=item.get('strMeal'),
-                            preparationmethod=item.get('strInstructions'),
-                            fotos=item.get('strMealThumb')
-                        )
-                    self.stdout.write(self.style.SUCCESS("Receitas salvas com sucesso no banco de dados!"))
+        self.stdout.write(
+            f'Total de receitas encontradas na API: {len(encontrados)}'
+        )
+        salvas = 0
 
-            else:
-                # Se a API não respondeu uma lista, exibe o conteúdo bruto recebido
-                self.stdout.write("Os dados nao vieram no formato de lista. Retorno recebido:")
-                self.stdout.write(str(dados))
-                
-        else:
-            # Se a API falhou (código diferente de 200), exibe o erro em vermelho
-            self.stdout.write(
-                self.style.ERROR(f"Falha ao conectar na API. Código de erro HTTP: {resposta.status_code}")
+        total = len(encontrados)
+        for indice, item in enumerate(encontrados.values(), start=1):
+            nome = item.get('strMeal')
+            if not nome or Receita.objects.filter(name=nome).exists():
+                self.stdout.write(f'[{indice}/{total}] {nome or "Sem nome"} (ja existe)')
+                continue
+
+            self.stdout.write(f'[{indice}/{total}] Salvando {nome}...')
+
+            ingredientes = []
+            for indice in range(1, 21):
+                ingrediente = (item.get(f'strIngredient{indice}') or '').strip()
+                medida = (item.get(f'strMeasure{indice}') or '').strip()
+                if ingrediente:
+                    ingredientes.append(f'{medida} {ingrediente}'.strip())
+
+            receita = Receita.objects.create(
+                name=nome[:100],
+                ingredients='\n'.join(ingredientes),
+                preparationmethod=item.get('strInstructions') or '',
             )
+
+            imagem_url = item.get('strMealThumb')
+            if imagem_url:
+                try:
+                    imagem = self._get_bytes(imagem_url)
+                    receita.fotos.save(
+                        f'{item.get("idMeal", receita.pk)}.jpg',
+                        ContentFile(BytesIO(imagem).getvalue()),
+                        save=True,
+                    )
+                except (HTTPError, URLError, TimeoutError):
+                    self.stdout.write(self.style.WARNING(
+                        f'Imagem nao baixada para {nome}'
+                    ))
+            salvas += 1
+
+        self.stdout.write(self.style.SUCCESS(
+            f'{salvas} receitas novas salvas no banco de dados.'
+        ))
